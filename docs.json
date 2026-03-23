@@ -44,6 +44,14 @@
               "ai-tools/claude-code",
               "ai-tools/windsurf"
             ]
+          },
+          {
+            "group": "Agentic Layer",
+            "pages": [
+              "agentic-layer/introduction",
+              "agentic-layer/phase-1",
+              "agentic-layer/phase-2"
+            ]
           }
         ]
       },

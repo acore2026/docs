@@ -1,0 +1,153 @@
+---
+title: "Phase 1 Implementation Design"
+description: "Design and flow for the first phase of Agentic Layer implementation."
+---
+
+# 逻辑视图
+```mermaid
+graph TD
+    %% Styling
+    classDef external fill:#fce4ec,stroke:#c2185b,stroke-width:2px;
+    classDef a2ui fill:#e8eaf6,stroke:#3f51b5,stroke-width:2px;
+    classDef ai fill:#e3f2fd,stroke:#1565c0,stroke-width:2px;
+    classDef core fill:#fff8e1,stroke:#fbc02d,stroke-width:2px;
+
+    %% External Apps
+    subgraph "External Channels"
+        TG["Telegram"]:::external
+        FS["Feishu"]:::external
+        SMS:::external
+        A2UI["A2UI-APP<br/>(Vue.js/React)"]:::external
+    end
+
+    %% A2UI Layer
+    subgraph "Typescript"
+        OmniGW["<b>Omnichannel Gateway</b><br/>Long polling & Webhook Receiver"]:::a2ui
+    end
+
+    %% Agentic Core
+    subgraph "Agentc Layer(golang)"
+        AAIHF["<b>AAIHF</b><br/>(adk-go Reasoner)"]:::ai
+        ACRF["<b>ACRF</b><br/>(Skill Registry)<br/>map[string]SkillProfile"]:::ai
+        IGW["<b>A-IGW</b><br/>(Fleet Translator)"]:::ai
+    end
+
+    %% Legacy Core
+    subgraph "Legacy 5G Core(golang)"
+        F5GC["<b>free5gc NFs</b><br/>(AMF, SMF, PCF)"]:::core
+    end
+
+    %% Connections
+    TG & FS & SMS -- "Platform-specific Format msg" --> OmniGW
+    OmniGW -- "Normalized JSON Intent" --> AAIHF
+    AAIHF -- "1. SearchSkill()" --> ACRF
+    AAIHF -- "2. ExecuteSkill()" --> IGW
+    IGW -- "3. 3GPP OpenAPI Calls" --> F5GC
+    
+    %% Return Path
+    IGW -. "Status" .-> AAIHF
+    AAIHF -. "Final LLM Response" .-> OmniGW
+    
+```
+1. 先只对接Telegram（OTT即时通信领域）和SMS（IMS领域），飞书对接需要域名、HTTPS和证书，暂不具备条件
+2. Google提案中提到的A2UI-APP，目前Telegram等应用都不支持，需要单独开发应用（用Vue或者React）
+
+# 第一阶段实现设计
+## 流程演绎
+```mermaid
+sequenceDiagram
+    autonumber
+    
+    box rgb(252, 228, 236) "External"
+    actor User as Telegram / Feishu App
+    end
+
+    box rgb(232, 234, 246) "A2UI Layer"
+    participant OmniGW as Omnichannel Gateway
+    end
+
+    box rgb(227, 242, 253) "6G Agentic Core [Go MVP]"
+    participant AAIHF as AAIHF (adk-go Reasoner)
+    participant ACRF as ACRF (Skill Registry)
+    participant IGW as A-IGW (Translator)
+    end
+    
+    box rgb(255, 248, 225) "Legacy 5G Core [free5gc]"
+    participant AMF as AMF
+    participant SMF as SMF
+    participant NEF as NEF
+    end
+
+    %% Stage 1: Intent
+    Note over User, AAIHF: Stage 1: Intent
+    User->>OmniGW: Chat: "Wake up fleet for firmware update"
+    OmniGW->>AAIHF: POST /intent {prompt, user_id}
+    Note over AAIHF: LLM processes natural language<br/>Determines required capability
+    
+    %% Stage 2: Skill
+    Note over AAIHF, ACRF: Stage 2: Skill
+    AAIHF->>ACRF: SearchSkill("mcp://skill/device/fleet-update")
+    ACRF-->>AAIHF: Return Profile (AgenticService-URI: http://igw:8081/invoke)
+    
+    %% Stage 3: Service Directive
+    Note over AAIHF, NEF: Stage 3: Service Directive
+    AAIHF->>IGW: ExecuteSkill (POST /invoke)
+    
+    Note over IGW: A-IGW acts as Universal Translator<br/>Maps 1 Skill to 3 Core APIs
+    
+    IGW->>AMF: 1. Namf_MT_EnableUEReachability
+    AMF-->>IGW: 200 OK
+    
+    IGW->>SMF: 2. Nsmf_PDUSession_UpdateSMContext
+    SMF-->>IGW: 200 OK
+    
+    IGW->>NEF: 3. Nnef_AFSessionWithQoS_Create
+    NEF-->>IGW: 201 Created
+    
+    %% Return Path
+    Note over IGW, User: Confirmation & Feedback
+    IGW-->>AAIHF: Success (Translation Sequence Completed)
+    Note over AAIHF: LLM generates human-friendly summary
+    AAIHF-->>OmniGW: {response: "Fleet successfully woken up..."}
+    OmniGW-->>User: Chat: "Fleet successfully woken up and QoS provisioned."
+```
+1. ACRF实现简化：其注册表用一个简单的`map[string]SkillProfile`，只能做字符串匹配，没法实现语义搜索。
+2. AAIHSF实现简化：第3步SearchSkill时，直接使用`mcp://skill/device/fleet-update`。正常来说，应该携带required-skill=`ensure-device-reachability` or `mcp://skill/wake-up-devices`
+
+
+
+# Skill注册流程演绎
+```mermaid
+flowchart TD
+    %% Styles
+    classDef req fill:#ffe0b2,stroke:#f57c00,stroke-width:2px;
+    classDef design fill:#bbdefb,stroke:#1976d2,stroke-width:2px;
+    classDef decision fill:#e1bee7,stroke:#8e24aa,stroke-width:2px;
+    classDef reg_multi fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px;
+    classDef reg_single fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
+    classDef registry fill:#fff9c4,stroke:#fbc02d,stroke-width:2px;
+
+    %% Nodes
+    Req["<b>1. New Requirement</b><br/>e.g., 3rd party app needs to wake up UEs"]:::req
+    
+    Eng["<b>2. Human Engineering & Design</b><br/>Map requirement to existing/new 3GPP APIs"]:::design
+    SkillDef["<b>Define 'Agentic Skill'</b><br/>Create the Skill URI (e.g., mcp://skill/device/fleet-update)"]:::design
+    
+    Dec{"<b>3. Architectural Decision:</b><br/>Does this sequence cross<br/>multiple NFs?"}:::decision
+    
+    IGW["<b>Interworking Gateway / NEF</b><br/>Takes responsibility to act as translator<br/>Registers the Skill"]:::reg_multi
+    SingleNF["<b>Specific Target NF (e.g., PCF)</b><br/>Takes direct responsibility<br/>Registers the Skill"]:::reg_single
+    
+    ACRF[("<b>ACRF / Enhanced NRF</b><br/>Dynamic Skill Registry stores the Capability")]:::registry
+
+    %% Flow
+    Req --> Eng
+    Eng --> SkillDef
+    SkillDef --> Dec
+    
+    Dec -- "Yes (Cross-NF)" --> IGW
+    Dec -- "No (Single NF)" --> SingleNF
+    
+    IGW -. "Nacrf_SkillManagement_Register Request" .-> ACRF
+    SingleNF -. "Nacrf_SkillManagement_Register Request" .-> ACRF
+```
