@@ -28,11 +28,11 @@
         "tab": "Guides",
         "groups": [
           {
-            "group": "Agentic Layer",
+            "group": "架构样机",
             "pages": [
-              "agentic-layer/introduction",
-              "agentic-layer/phase-1",
-              "agentic-layer/phase-2"
+              "架构样机/introduction",
+              "架构样机/phase-1",
+              "架构样机/phase-2"
             ]
           }
         ]
