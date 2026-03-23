@@ -14,7 +14,14 @@
         "tab": "架构样机",
         "pages": [
           "架构样机/phase-1",
-          "架构样机/phase-2"
+          "架构样机/phase-2",
+          {
+            "group": "Adaptive QoS",
+            "pages": [
+              "stage-1",
+              "stage-2"
+            ]
+          }
         ]
       },
       {

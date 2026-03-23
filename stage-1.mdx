@@ -1,0 +1,243 @@
+---
+title: "Stage 1"
+---
+
+## 1. 方案目标
+
+- **UE 上报业务意图或业务变化 → UPF 生成 QoS 辅助信息 → UPF 向 RAN 侧发送辅助信息 → UE 接收保障开始或结束反馈**
+
+## 2. 部署设计
+
+```text
+flowchart LR
+    %% ===== Styles =====
+    classDef cp fill:#E8F1FF,stroke:#4A90E2,stroke-width:1.5px,color:#1F2D3D;
+    classDef ue fill:#EAFBF0,stroke:#34A853,stroke-width:1.5px,color:#1F2D3D;
+    classDef ran fill:#FFF4E5,stroke:#F5A623,stroke-width:1.5px,color:#1F2D3D;
+    classDef upf fill:#F3E8FF,stroke:#8E44AD,stroke-width:1.5px,color:#1F2D3D;
+    classDef app fill:#F7F7F7,stroke:#888,stroke-width:1.2px,color:#1F2D3D;
+
+    %% ===== Nodes =====
+    subgraph CP["Control Plane"]
+        SMF["SMF"]
+    end
+
+    subgraph UE["UE"]
+        APP["App / Test Tool"]
+        SIDE["adaptive-qos-sidecar"]
+    end
+
+    subgraph RAN["RAN"]
+        GNB["gNB"]
+    end
+
+    subgraph UPFBOX["UPF"]
+        FWD["forwarder"]
+        CTRL["adaptive-qos-controller"]
+    end
+
+    %% ===== Links =====
+    APP -->|"Local HTTP API"| SIDE
+
+    SMF -->|"(NAS)<br>UP endpoint info"| SIDE
+    SMF -->|"(N4 PFCP IE)<br>QoS parameter pre-authorization"| CTRL
+
+    SIDE -->|"(PDU packets)<br>adaptive-qos request"| GNB
+    GNB -->|"(N3 forwarding)<br>PDU packets"| FWD
+
+    FWD -->|"Internal PDR Matching"| CTRL
+    CTRL -->|"(GTP-U Signalling)<br>QoS assistance message"| GNB
+
+    %% ===== Classes =====
+    class SMF cp;
+    class APP app;
+    class SIDE ue;
+    class GNB ran;
+    class FWD,CTRL upf;
+```
+
+### 2.1 UE 侧组件：`adaptive-qos-sidecar`
+
+`adaptive-qos-sidecar` 是部署在 UE 侧的新进程，用于业务语义上报与保障反馈处理。
+
+- 对本地应用或测试工具提供 HTTP 接口
+- 与 UPF 侧协同模块建立基于 **HTTP/3** 的 **MASQUE 会话**
+- 通过 **CONNECT-UDP** 建立通向 UPF 上报端点的 UDP 隧道
+- 通过 MASQUE 隧道发送业务上报数据报
+- 接收来自 UPF 的保障反馈并返回本地调用方\
+  MASQUE 隧道沿业务 PDU 路径传输：
+- **UE → RAN → UPF**
+
+### 2.2 UPF 侧组件：`adaptive-qos-controller`
+
+`adaptive-qos-controller` 是部署在 UPF 旁路或内部的新协同控制模块。
+
+- 终止来自 UE 侧 `qos-sidecar` 的 MASQUE 上报隧道
+- 接收并解析隧道中承载的业务上报数据报
+- 对输入负载进行校验和规范化处理
+- 维护最小化的每会话、每流上下文
+- 应用静态规则表进行 QoS 辅助信息生成
+- 向 RAN 侧发送原型控制消息
+- 向 UE 侧返回保障状态反馈
+
+## 3. 端到端流程
+
+本原型的端到端流程如下：
+
+1. `qos-sidecar` 从本地配置文件读取 UPF 端点信息。
+2. `qos-sidecar` 向 UPF 侧协同模块建立 **HTTP/3 MASQUE 会话**。
+3. `qos-sidecar` 通过 **CONNECT-UDP** 打开通向 UPF 上报目标的 UDP 隧道。
+4. 本地应用或测试工具通过 HTTP API 向 `qos-sidecar` 提交业务上报请求。
+5. `qos-sidecar` 对请求进行校验和规范化，并将其封装为应用定义的数据报，通过 MASQUE 隧道发送至 UPF。
+6. UPF 根据内部 PDR 匹配到消息，交予协同控制模块，并更新相应的会话/流上下文。
+7. UPF 执行业务语义到 QoS 辅助信息的映射。
+8. UPF 构造原型控制消息并向 RAN 侧发送。
+9. 若本地发送操作成功，则视为该步骤成功完成。
+10. UPF 通过同一 MASQUE 会话向 `qos-sidecar` 返回保障状态反馈
+
+```text
+sequenceDiagram
+    autonumber
+    participant APP as UE App
+    participant SIDE as UE<br>adaptive-qos-sidecar
+    participant RAN as gNB
+    participant UPF as UPF<br>adaptive-qos-controller
+
+    Note over SIDE: 1. 从本地配置加载 UPF 端点信息
+
+    SIDE->>UPF: 2. 建立 HTTP/3 MASQUE 会话（经 UE → RAN → UPF 路径）
+    SIDE->>UPF: 3. 打开 CONNECT-UDP 隧道
+
+    APP->>SIDE: 4. 通过 HTTP API 提交业务上报
+    SIDE->>SIDE: 5. 校验并规范化请求
+    SIDE->>UPF: 5. 通过 MASQUE 隧道发送 UDP 上报数据报
+
+    UPF->>UPF: 6. 接收上报并更新流上下文
+    UPF->>UPF: 7. 应用静态规则并生成 QoS 辅助信息
+    UPF->>RAN: 8. 向 RAN 侧发送原型控制消息
+
+    alt 本地发送成功
+        UPF->>SIDE: 10. 返回 GUARANTEE_STARTED / GUARANTEE_ENDED
+    else 本地发送失败或拒绝
+        UPF->>SIDE: 10. 返回 GUARANTEE_REJECTED
+    end
+
+    SIDE->>APP: 11. 返回处理结果
+    SIDE->>SIDE: 11. 记录日志
+```
+
+## 4. 模块设计
+
+### 4.1 UE 侧模块设计
+
+UE 侧 `qos-sidecar` 负责：
+
+- 维护与 UPF 侧协同模块之间的 MASQUE 会话
+- 提供本地业务上报 HTTP 接口
+- 对业务上报进行输入校验与格式规范化
+- 将业务上报通过 MASQUE 隧道发送至 UPF
+- 接收并返回 UPF 的保障状态反馈
+
+#### 4.1.1 对外接口
+
+`qos-sidecar` 对本地应用或测试工具提供以下 HTTP 接口：
+
+- `POST /report`：提交新的业务上报或已有业务状态更新
+- `POST /end`：结束此前已上报的业务请求
+- `GET /status`：查询连接状态及最近一次 UPF 反馈结果
+
+### 4.2 UPF 侧模块设计
+
+UPF 侧协同控制模块负责：
+
+- 终止 MASQUE 上报路径
+- 接收来自 `qos-sidecar` 的隧道上报消息
+- 执行负载校验与规范化处理
+- 维护按 UE 会话和逻辑流组织的最小上下文
+- 执行基于规则的 QoS 映射
+- 构建原型 QoS 辅助消息
+- 向 RAN 侧发送原型控制消息
+- 向 `qos-sidecar` 返回保障结果
+
+## 5. 接口与消息设计
+
+### 5.1 端点配置
+
+第一阶段 UPF 端点信息暂不 NAS 动态下发，而是保存在 UE 侧本地配置文件中。\
+后续如需增强控制面集成，可进一步演进为由 CP 下发协同端点信息。
+
+### 5.2 UE → UPF 上报消息
+
+#### 5.2.1 消息类型
+
+- `INTENT_REPORT`
+- `STATUS_REPORT`
+- `END_REPORT`
+
+#### 6.2.2 控制字段
+
+- `flowId`：由 UE 为每个新逻辑流分配的标识
+- `reportType`
+- `timestamp`
+
+#### 6.2.3 通用字段
+
+- `trafficPattern`：例如周期型、背景型、偶发型
+- `expectedArrivalTime`
+- `burstSize`
+- `burstDuration`
+
+#### 6.2.4 高可靠业务字段
+
+- `reliabilityLevel`
+- `latencySensitivity`
+- `packetLossTolerance`
+
+#### 6.2.5 视频业务字段
+
+- `resolution`
+- `bitrate`
+- `frameRate`
+
+### 6.3 UPF → RAN 原型控制消息设计
+
+本原型不要求 RAN 具备标准兼容处理能力。UPF 向 RAN 侧发送一条**独立的 UDP 控制消息**，其中承载原型定义的 QoS 辅助负载。\
+可承载的 QoS/Profile 信息包括：
+
+- 5QI / 6QI
+- ARP
+- GFBR
+- MFBR
+- UL / DL 最大包丢失率
+
+### 6.4 UPF → UE 反馈消息设计
+
+UPF 对 UE 的反馈通过同一 MASQUE 会话返回，使用同一套应用定义数据报机制的反向通道进行传输。
+
+#### 6.4.1 消息类型
+
+支持以下反馈类型：
+
+- `GUARANTEE_STARTED`
+- `GUARANTEE_ENDED`
+- `GUARANTEE_REJECTED`
+
+#### 6.4.2 最小字段
+
+反馈消息至少包含以下字段：
+
+- `flowId`
+- `status`
+- `reasonCode`
+- `effectiveTime`
+
+## 7. 规则映射
+
+- UPF 应按照 UE 的 QoS 反馈、CP（SMF）下发的预授权 QoS 参数范围（样机可暂时预配该范围，但应留有 N4 PFCP 拓展 IE 下发的能力）、当前网络负载（可打桩），通过一定算法映射为动态的 QoS profile 规则
+- 示例规则：
+  - **周期性控制流量 \+ 高时延敏感度**\
+    映射为低时延 QoS profile
+  - **已知短时突发 \+ 低丢包容忍度**\
+    映射为短时长保障比特率 profile
+  - **视频码率提升事件**\
+    映射为更高下行比特率 profile
