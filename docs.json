@@ -7,7 +7,7 @@
     "light": "#07C983",
     "dark": "#15803D"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "/logo/6Glogo.png",
   "navigation": {
     "tabs": [
       {
@@ -16,7 +16,7 @@
           {
             "group": "架构样机0331",
             "pages": [
-              "架构样机/phase-1"
+              "arch/design"
             ]
           },
           {
@@ -29,9 +29,15 @@
         ]
       },
       {
-        "tab": "ACN",
+        "tab": "ACN样机",
         "pages": [
           "acn/todo"
+        ]
+      },
+      {
+        "tab": "算网样机",
+        "pages": [
+          "todo"
         ]
       },
       {
