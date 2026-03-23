@@ -1,9 +1,10 @@
 ---
-title: "Phase 1 Implementation Design"
+title: "第一阶段实现设计"
 description: "Design and flow for the first phase of Agentic Layer implementation."
 ---
 
 # 逻辑视图
+
 ```mermaid
 graph TD
     %% Styling
@@ -49,11 +50,14 @@ graph TD
     AAIHF -. "Final LLM Response" .-> OmniGW
     
 ```
+
 1. 先只对接Telegram（OTT即时通信领域）和SMS（IMS领域），飞书对接需要域名、HTTPS和证书，暂不具备条件
 2. Google提案中提到的A2UI-APP，目前Telegram等应用都不支持，需要单独开发应用（用Vue或者React）
 
 # 第一阶段实现设计
+
 ## 流程演绎
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -111,12 +115,12 @@ sequenceDiagram
     AAIHF-->>OmniGW: {response: "Fleet successfully woken up..."}
     OmniGW-->>User: Chat: "Fleet successfully woken up and QoS provisioned."
 ```
+
 1. ACRF实现简化：其注册表用一个简单的`map[string]SkillProfile`，只能做字符串匹配，没法实现语义搜索。
 2. AAIHSF实现简化：第3步SearchSkill时，直接使用`mcp://skill/device/fleet-update`。正常来说，应该携带required-skill=`ensure-device-reachability` or `mcp://skill/wake-up-devices`
 
-
-
 # Skill注册流程演绎
+
 ```mermaid
 flowchart TD
     %% Styles
