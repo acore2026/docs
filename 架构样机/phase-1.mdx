@@ -41,9 +41,9 @@ graph TD
     %% Connections
     TG & FS & SMS -- "Platform-specific Format msg" --> OmniGW
     OmniGW -- "Normalized JSON Intent" --> AAIHF
-    AAIHF -- "1. SearchSkill()" --> ACRF
-    AAIHF -- "2. ExecuteSkill()" --> IGW
-    IGW -- "3. 3GPP OpenAPI Calls" --> F5GC
+    AAIHF -- "1.SearchSkill()" --> ACRF
+    AAIHF -- "2.ExecuteSkill()" --> IGW
+    IGW -- "3.3GPP OpenAPI Calls" --> F5GC
     
     %% Return Path
     IGW -. "Status" .-> AAIHF
