@@ -22,8 +22,8 @@
           {
             "group": "Adaptive QoS",
             "pages": [
-              "stage-1",
-              "stage-2"
+              "arch/QoS/stage-1",
+              "arch/QoS/stage-2"
             ]
           }
         ]
@@ -43,7 +43,7 @@
       {
         "tab": "Guide",
         "pages": [
-          "file"
+          "guide"
         ]
       },
       {
