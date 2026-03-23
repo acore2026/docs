@@ -24,6 +24,12 @@
         ]
       },
       {
+        "tab": "Guide",
+        "pages": [
+          "file"
+        ]
+      },
+      {
         "tab": "API reference",
         "groups": [
           {
