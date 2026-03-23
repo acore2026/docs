@@ -8,7 +8,7 @@ title: "Stage 1"
 
 ## 2. 部署设计
 
-```text
+```mermaid placement="bottom-right"
 flowchart LR
     %% ===== Styles =====
     classDef cp fill:#E8F1FF,stroke:#4A90E2,stroke-width:1.5px,color:#1F2D3D;
@@ -95,7 +95,7 @@ flowchart LR
 9. 若本地发送操作成功，则视为该步骤成功完成。
 10. UPF 通过同一 MASQUE 会话向 `qos-sidecar` 返回保障状态反馈
 
-```text
+```mermaid placement="bottom-right"
 sequenceDiagram
     autonumber
     participant APP as UE App
