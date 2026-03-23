@@ -22,7 +22,7 @@ graph TD
     end
 
     %% A2UI Layer
-    subgraph "Typescript"
+    subgraph "Access Agnostic(Typescript)"
         OmniGW["<b>Omnichannel Gateway</b><br/>Long polling & Webhook Receiver"]:::a2ui
     end
 
@@ -66,11 +66,11 @@ sequenceDiagram
     actor User as Telegram / Feishu App
     end
 
-    box rgb(232, 234, 246) "A2UI Layer"
+    box rgb(232, 234, 246) "Access Agnostic Layer"
     participant OmniGW as Omnichannel Gateway
     end
 
-    box rgb(227, 242, 253) "6G Agentic Core [Go MVP]"
+    box rgb(227, 242, 253) "Agentic-Layer"
     participant AAIHF as AAIHF (adk-go Reasoner)
     participant ACRF as ACRF (Skill Registry)
     participant IGW as A-IGW (Translator)
