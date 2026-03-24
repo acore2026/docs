@@ -205,12 +205,11 @@ graph TD
   ![Image](/images/image-2.png)
 </Frame>
 
-- Step 1, NF -> ACRF/NRF: NF sends message to ACRF/NRF. The message includes Nacrf_SkillManagement_Register Request/Nnrf_NFManagement_NFRegister Request | (Node_Type='NF', agenticSkillSet).
-- Step 2, ACRF/NRF -> NF: ACRF/NRF sends message to NF. The message includes Nacrf_SkillManagement_Register Response/Nnrf_NFManagement_NFRegister Response | (200 OK).
+- Step 1, NF -\> ACRF/NRF: NF sends message to ACRF/NRF. The message includes Nacrf\_SkillManagement\_Register Request/Nnrf\_NFManagement\_NFRegister Request | (Node\_Type='NF', agenticSkillSet).
+- Step 2, ACRF/NRF -\> NF: ACRF/NRF sends message to NF. The message includes Nacrf\_SkillManagement\_Register Response/Nnrf\_NFManagement\_NFRegister Response | (200 OK).
 - Step 3, AAIHF (Core AI Agent): AAIHF (Core AI Agent) perform internal Intent ID(s).
-- Step 4, AAIHF (Core AI Agent) -> ACRF/NRF: AAIHF (Core AI Agent) sends message to ACRF/NRF. The message includes Nacrf_SkillDiscovery_Request/Nnrf_NFDiscovery_Request | (required-skill).
-- Step 5, ACRF/NRF -> AAIHF (Core AI Agent): ACRF/NRF sends message to AAIHF (Core AI Agent). The message includes Nacrf_SkillDiscovery_Response/Nnrf_NFDiscovery_Response | (List of Agentic_Target_Profile(s)).
-
+- Step 4, AAIHF (Core AI Agent) -\> ACRF/NRF: AAIHF (Core AI Agent) sends message to ACRF/NRF. The message includes Nacrf\_SkillDiscovery\_Request/Nnrf\_NFDiscovery\_Request | (required-skill).
+- Step 5, ACRF/NRF -\> AAIHF (Core AI Agent): ACRF/NRF sends message to AAIHF (Core AI Agent). The message includes Nacrf\_SkillDiscovery\_Response/Nnrf\_NFDiscovery\_Response | (List of Agentic\_Target\_Profile(s)).
 
 #### 流程演绎
 
@@ -246,3 +245,45 @@ sequenceDiagram
     
     Note over IGW: Gateway executes 3GPP signaling...
 ```
+
+# 专家意见
+
+## 镒平
+
+### Intent → Skill 的映射
+
+<Note>
+  1. AAIHF能否看到目前有哪些可用的Skill
+  2. 这一步，到底是怎么完成的
+</Note>
+
+1. AAIHF应当是具备领域知识的，有相应的System Prompt
+2. AAIHF有能力实现"abstract functional requirement"，举例：`My video feed keeps dropping` -\> `required-skill='ensure-resiliency'`
+3. ??
+
+### ACRF 返回多个Skill的情况
+
+<Note>
+  提案中提到，Bullet 1c: Modularisation of procedures for dynamic composition. 说明Intent和Skill不可能是一对一的关系。返回多个Skill时，AAIHF怎么处理？
+</Note>
+
+1. The AAIHF breaks this complex intent into sub-tasks.
+2. It queries the ACRF for "low latency" and gets back `mcp://skill/qos/turbo-mode`.
+3. It queries the ACRF for "secure drone flight" and gets back `mcp://skill/edge/secure-flight`.
+
+### Skill执行
+
+<Note>
+  1. 最好是由AI（而不是人）根据Skill内容 生成相应执行动作（按既定顺序调用相应API的动作）
+  2. Skill 内容设计
+</Note>
+
+TODO
+
+### Free5GC部分
+
+<Note>
+  Free5GC提供的API/Tool也要发现（MCP）
+</Note>
+
+TODO
