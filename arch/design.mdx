@@ -199,6 +199,21 @@ graph TD
 
 ## 运行视图
 
+#### Google提案
+
+<Frame>
+  ![Image](/images/image-2.png)
+</Frame>
+
+- Step 1, NF -> ACRF/NRF: NF sends message to ACRF/NRF. The message includes Nacrf_SkillManagement_Register Request/Nnrf_NFManagement_NFRegister Request | (Node_Type='NF', agenticSkillSet).
+- Step 2, ACRF/NRF -> NF: ACRF/NRF sends message to NF. The message includes Nacrf_SkillManagement_Register Response/Nnrf_NFManagement_NFRegister Response | (200 OK).
+- Step 3, AAIHF (Core AI Agent): AAIHF (Core AI Agent) perform internal Intent ID(s).
+- Step 4, AAIHF (Core AI Agent) -> ACRF/NRF: AAIHF (Core AI Agent) sends message to ACRF/NRF. The message includes Nacrf_SkillDiscovery_Request/Nnrf_NFDiscovery_Request | (required-skill).
+- Step 5, ACRF/NRF -> AAIHF (Core AI Agent): ACRF/NRF sends message to AAIHF (Core AI Agent). The message includes Nacrf_SkillDiscovery_Response/Nnrf_NFDiscovery_Response | (List of Agentic_Target_Profile(s)).
+
+
+#### 流程演绎
+
 ```mermaid
 sequenceDiagram
     autonumber
