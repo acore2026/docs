@@ -68,10 +68,7 @@
       }
     ]
   },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
+  "logo": "/logo/Agentic-Core.png",
   "navbar": {
     "links": [],
     "primary": {
