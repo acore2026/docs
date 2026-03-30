@@ -14,9 +14,11 @@
         "tab": "架构样机",
         "groups": [
           {
-            "group": "架构样机0331",
+            "group": "架构样机",
+            "icon": "archway",
             "pages": [
-              "arch/design"
+              "arch/design",
+              "arch/0330"
             ]
           },
           {

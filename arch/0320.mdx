@@ -1,57 +1,11 @@
 ---
-title: "实现设计"
+title: "实现设计-0320"
 description: "Design and flow for the first phase of Agentic Layer implementation."
 ---
 
 # 总体
 
 ## 逻辑视图
-
-### 0330
-
-```mermaid placement="bottom-right"
-flowchart TD
-    classDef device fill:#fce4ec,stroke:#c2185b,stroke-width:2px;
-    classDef app fill:#e8eaf6,stroke:#3f51b5,stroke-width:2px;
-    classDef agent fill:#e3f2fd,stroke:#1565c0,stroke-width:2px;
-    classDef core fill:#fff8e1,stroke:#fbc02d,stroke-width:2px;
-
-    subgraph DeviceDomain
-    UE["SmartPhone/Robot/Glasses"]:::device
-    end
-
-    subgraph AppDomain
-    App["Telegram/Feishu/SMS/A2UI"]:::app
-    end
-
-    subgraph NetworkDomain
-    SystemAgent:::agent
-    SRF
-    ConnAgent["ConnAgent/AAIHF"]:::agent
-    ComputeAgent:::agent
-    SenseAgent:::agent
-    ACRF[("ACRF<br/>- Opt1: LLM Thinking<br/>- Opt2: Vector Embedding")]
-    IGW
-
-    App --- NEF["NRF/GW"]
-    NEF --- SystemAgent
-    
-    SystemAgent --- ConnAgent
-    SystemAgent --- ComputeAgent
-    SystemAgent --- SenseAgent
-
-    UE --- SRF
-    SRF --- SystemAgent
-    
-    ConnAgent ---|"SearchSkill(intent)"| ACRF
-    ComputeAgent ---|"SearchSkill(intent)"| ACRF
-    SenseAgent ---|"SearchSkill(intent)"| ACRF
-
-    IGW ---|"RegisterSkill"| ACRF
-    end
-```
-
-### 0320
 
 ```mermaid placement="bottom-right"
 graph TD
