@@ -17,7 +17,7 @@
             "group": "架构样机",
             "icon": "archway",
             "pages": [
-              "arch/design",
+              "arch/0320",
               "arch/0330"
             ]
           },
