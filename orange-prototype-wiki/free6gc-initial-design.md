@@ -128,12 +128,22 @@ flowchart TB
 
 ### 4.1 Repository Model
 
-Use a hybrid multi-repo model.
+Use a hybrid multi-repo model. These are sibling repositories in the same workspace, not parent/child directories. `free6gc-system` is the coordination and integration authority, but it does not contain the service implementation repositories.
 
 ```mermaid
 flowchart TB
-    SYS[free6gc-system<br/>integration authority]
-    API[free6gc-api-go<br/>generated Go gRPC module]
+    subgraph WORKSPACE[Workspace, for example /root/proj/go]
+        SYS[free6gc-system<br/>sibling repo: integration authority]
+        API[free6gc-api-go<br/>sibling repo: generated Go gRPC module]
+        SRF[free6gc-srf<br/>sibling repo: NGAP/SCTP termination]
+        GCF[free6gc-gcf<br/>sibling repo: procedure orchestration]
+        NASC[free6gc-nas-codec-service<br/>sibling repo: NAS encode/decode]
+        NASS[free6gc-nas-security-service<br/>sibling repo: NAS security context]
+        AUTH[free6gc-authentication-service<br/>sibling repo: Authentication/SEAF]
+        SUB[free6gc-subscription-service<br/>sibling repo: registration subscription data]
+        MR[free6gc-mobility-restriction-service<br/>sibling repo: access decisions]
+        MM[free6gc-mobility-management-service<br/>sibling repo: GUTI/TA/registration context]
+    end
 
     SYS --> SPECS[specs/proto<br/>source .proto contracts]
     SYS --> PROMPTS[prompts<br/>Codex task prompts]
@@ -143,14 +153,14 @@ flowchart TB
 
     SPECS --> API
 
-    API --> SRF[free6gc-srf<br/>NGAP/SCTP termination]
-    API --> GCF[free6gc-gcf<br/>procedure orchestration]
-    API --> NASC[free6gc-nas-codec-service<br/>NAS encode/decode]
-    API --> NASS[free6gc-nas-security-service<br/>NAS security context]
-    API --> AUTH[free6gc-authentication-service<br/>Authentication/SEAF]
-    API --> SUB[free6gc-subscription-service<br/>registration subscription data]
-    API --> MR[free6gc-mobility-restriction-service<br/>access decisions]
-    API --> MM[free6gc-mobility-management-service<br/>GUTI/TA/registration context]
+    API --> SRF
+    API --> GCF
+    API --> NASC
+    API --> NASS
+    API --> AUTH
+    API --> SUB
+    API --> MR
+    API --> MM
 
     TESTS --> SRF
     TESTS --> GCF
@@ -160,6 +170,31 @@ flowchart TB
     TESTS --> SUB
     TESTS --> MR
     TESTS --> MM
+```
+
+Recommended workspace shape:
+
+```text
+/root/proj/go/
+  free6gc-system/                  # sibling repo, owns specs/deployments/tests/prompts
+  free6gc-api-go/                  # sibling repo, generated from free6gc-system/specs/proto
+  free6gc-srf/                     # sibling repo
+  free6gc-gcf/                     # sibling repo
+  free6gc-nas-codec-service/       # sibling repo
+  free6gc-nas-security-service/    # sibling repo
+  free6gc-authentication-service/  # sibling repo
+  free6gc-subscription-service/    # sibling repo
+  free6gc-mobility-restriction-service/
+  free6gc-mobility-management-service/
+```
+
+The dependency direction is contract-first, not directory-parent-first:
+
+```mermaid
+flowchart LR
+    PROTO[free6gc-system/specs/proto<br/>source contracts] --> GEN[free6gc-api-go<br/>generated bindings]
+    GEN --> SERVICE[free6gc-nas-security-service<br/>imports generated API]
+    SYSTEM[free6gc-system/tests<br/>contract and e2e tests] --> SERVICE
 ```
 
 ### 4.2 Source Extraction Map
