@@ -246,6 +246,82 @@ mindmap
       Registration context commit
 ```
 
+### 4.4 Spec Management for SDD
+
+Spec-driven development uses `free6gc-system` as the source of truth for cross-repo behavior, public contracts, integration tests, and Codex work decomposition. Service repos own only service-local specs that do not change public contracts or another repo's behavior.
+
+```mermaid
+flowchart TB
+    REQ[New requirement]
+    CROSS{Touches more than one repo<br/>or public API/deployment/e2e behavior?}
+    SYSTEM[Write system spec<br/>free6gc-system/specs/requirements/*.md]
+    LOCAL[Write local spec<br/>owning-service/specs/requirements/*.md]
+    PROTO{Requires gRPC contract change?}
+    PROTOS[Update source proto<br/>free6gc-system/specs/proto/*.proto]
+    APIGO[Regenerate/publish<br/>free6gc-api-go]
+    FANOUT[Start repo-specific Codex sessions<br/>from each implementation repo]
+    LOCALCODE[Implement and test<br/>inside owning service repo]
+    CONTRACT[Run contract tests<br/>free6gc-system/tests/contract]
+    E2E[Run e2e tests<br/>free6gc-system/tests/e2e]
+
+    REQ --> CROSS
+    CROSS -->|yes| SYSTEM
+    CROSS -->|no| LOCAL
+    SYSTEM --> PROTO
+    PROTO -->|yes| PROTOS --> APIGO --> FANOUT
+    PROTO -->|no| FANOUT
+    FANOUT --> CONTRACT --> E2E
+    LOCAL --> LOCALCODE
+    LOCALCODE -->|if behavior becomes cross-repo| SYSTEM
+```
+
+Recommended layout:
+
+```text
+free6gc-system/
+  specs/
+    requirements/
+      initial-registration.md
+      auth-failure.md
+      access-restricted.md
+    scenarios/
+      initial-registration-success.md
+    decisions/
+      adr-0001-hybrid-multirepo.md
+    proto/
+      common.proto
+      srf_gcf.proto
+      nas_codec.proto
+      nas_security.proto
+      authentication.proto
+      subscription.proto
+      mobility_restriction.proto
+      mobility_management.proto
+  tests/
+    contract/
+    e2e/
+  prompts/
+    cross-repo-task-template.md
+
+free6gc-nas-security-service/
+  specs/
+    requirements/
+      replay-protection.md
+      security-context-lifecycle.md
+```
+
+Spec placement rules:
+
+- Cross-repo behavior: `free6gc-system/specs/requirements/`.
+- Public gRPC/protobuf API: `free6gc-system/specs/proto/`.
+- Integration scenarios: `free6gc-system/specs/scenarios/`.
+- Architecture decisions: `free6gc-system/specs/decisions/`.
+- Contract and E2E acceptance tests: `free6gc-system/tests/`.
+- Purely local service behavior: owning service repo under `specs/requirements/`.
+- Internal refactor with no behavior change: a service-local note or issue is enough; no system spec is required.
+
+For cross-repo requirements, start the first Codex session in `free6gc-system`, write or update the system spec, update proto contracts if needed, then fan out implementation sessions to the service repos. For local requirements, start Codex in the owning service repo and keep the spec there.
+
 ## 5. Process View
 
 ### 5.1 Initial Registration Sequence
