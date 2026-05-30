@@ -62,149 +62,189 @@ Before editing, inspect the existing code path and identify the exact Free5GC fu
 
 The proposal already defines the logical view: a hierarchical architecture with Routing Services, Global Coordination Services, and Atomic Modular Services. This document adds the development, process, physical, and scenario views for the first prototype.
 
+```mermaid
+flowchart TB
+    CENTER[Free6GC Initial Registration Prototype]
+    LOGICAL[Logical View<br/>SRF, GCF, AMCF atomic services]
+    DEV[Development View<br/>hybrid multi-repo and proto contracts]
+    PROCESS[Process View<br/>initial registration runtime messages]
+    PHYSICAL[Physical View<br/>compose and Kubernetes deployment]
+    SCENARIO[Scenario View<br/>success and failure registration flows]
+
+    CENTER --> LOGICAL
+    CENTER --> DEV
+    CENTER --> PROCESS
+    CENTER --> PHYSICAL
+    CENTER --> SCENARIO
+```
+
+### 3.1 Logical View Summary
+
+```mermaid
+flowchart TB
+    subgraph ACCESS[Access side]
+        UE[UE]
+        GNB[gNB/UERANSIM]
+        UE --> GNB
+    end
+
+    subgraph ROUTING[Routing Service Layer]
+        SRF[SRF<br/>Signaling Routing Function]
+    end
+
+    subgraph COORD[Global Coordination Layer]
+        GCF[GCF<br/>initial registration procedure control]
+    end
+
+    subgraph ATOMIC[Atomic Modular Services]
+        NASC[NAS Codec Service]
+        NASS[NAS Security Service]
+        AUTH[Authentication Service]
+        SUB[Subscription Service]
+        MR[Mobility Restriction Service]
+        MM[Mobility Management Service]
+    end
+
+    subgraph BACKEND[Existing Free5GC backend services]
+        AUSF[AUSF]
+        UDM[UDM/UDR]
+        PCF[PCF optional]
+    end
+
+    GNB -->|NGAP/SCTP| SRF
+    SRF -->|raw NAS + metadata| GCF
+    GCF --> NASC
+    GCF --> NASS
+    GCF --> AUTH
+    GCF --> SUB
+    GCF --> MR
+    GCF --> MM
+    AUTH --> AUSF
+    SUB --> UDM
+    MR -. policy input .-> PCF
+```
+
 ## 4. Development View
 
 ### 4.1 Repository Model
 
 Use a hybrid multi-repo model.
 
-```text
-free6gc-system/
-  specs/
-    proto/
-      srf_gcf.proto
-      nas_codec.proto
-      nas_security.proto
-      authentication.proto
-      subscription.proto
-      mobility_restriction.proto
-      mobility_management.proto
-  prompts/
-    initial-context.md
-    service-task-template.md
-  deployments/
-    compose/
-    k8s/
-  tests/
-    e2e/
-    contract/
-  docs/
-    architecture/
+```mermaid
+flowchart TB
+    SYS[free6gc-system<br/>integration authority]
+    API[free6gc-api-go<br/>generated Go gRPC module]
 
-free6gc-api-go/
-  Generated Go code from free6gc-system/specs/proto.
+    SYS --> SPECS[specs/proto<br/>source .proto contracts]
+    SYS --> PROMPTS[prompts<br/>Codex task prompts]
+    SYS --> DEPLOY[deployments<br/>compose and k8s]
+    SYS --> TESTS[tests<br/>contract and e2e]
+    SYS --> DOCS[docs/architecture]
 
-free6gc-srf/
-  NGAP/SCTP termination and RAN association routing.
+    SPECS --> API
 
-free6gc-gcf/
-  Initial registration procedure orchestration.
+    API --> SRF[free6gc-srf<br/>NGAP/SCTP termination]
+    API --> GCF[free6gc-gcf<br/>procedure orchestration]
+    API --> NASC[free6gc-nas-codec-service<br/>NAS encode/decode]
+    API --> NASS[free6gc-nas-security-service<br/>NAS security context]
+    API --> AUTH[free6gc-authentication-service<br/>Authentication/SEAF]
+    API --> SUB[free6gc-subscription-service<br/>registration subscription data]
+    API --> MR[free6gc-mobility-restriction-service<br/>access decisions]
+    API --> MM[free6gc-mobility-management-service<br/>GUTI/TA/registration context]
 
-free6gc-nas-codec-service/
-  NAS byte-to-typed-message and typed-message-to-byte conversion.
-
-free6gc-nas-security-service/
-  NAS security context, integrity, ciphering, replay counters, SMC support.
-
-free6gc-authentication-service/
-  Authentication/SEAF service, AUSF interaction, RES*/HRES* validation, KSEAF output.
-
-free6gc-subscription-service/
-  Registration subscription data access, initially UDM/UDR adapter.
-
-free6gc-mobility-restriction-service/
-  Access permission, RAT/TA/slice restriction decisions.
-
-free6gc-mobility-management-service/
-  GUTI allocation, TAI list, registration context, registration commit.
+    TESTS --> SRF
+    TESTS --> GCF
+    TESTS --> NASC
+    TESTS --> NASS
+    TESTS --> AUTH
+    TESTS --> SUB
+    TESTS --> MR
+    TESTS --> MM
 ```
 
 ### 4.2 Source Extraction Map
 
 Initial Free5GC reference points:
 
-```text
-free5gc-compose/base/free5gc/NFs/amf/internal/ngap
-  Source for SRF NGAP/SCTP association handling and uplink/downlink NAS transport behavior.
+```mermaid
+flowchart LR
+    subgraph AMF[Free5GC AMF reference code]
+        NGAP[NFs/amf/internal/ngap<br/>NGAP/SCTP and NAS transport]
+        NAS[NFs/amf/internal/nas<br/>NAS dispatch]
+        GMMMSG[NFs/amf/internal/gmm/message<br/>NAS builders]
+        SEC[NFs/amf/internal/nas/nas_security<br/>NAS protection]
+        UECTX[NFs/amf/internal/context/amf_ue.go<br/>UE security/context fields]
+        GMM[NFs/amf/internal/gmm/handler.go<br/>registration procedure]
+        SBI[NFs/amf/internal/sbi/consumer<br/>AUSF/UDM/PCF/NRF clients]
+    end
 
-free5gc-compose/base/free5gc/NFs/amf/internal/nas
-free5gc-compose/base/free5gc/NFs/amf/internal/gmm/message
-  Source for NAS codec and message construction behavior.
-
-free5gc-compose/base/free5gc/NFs/amf/internal/nas/nas_security
-free5gc-compose/base/free5gc/NFs/amf/internal/context/amf_ue.go
-  Source for NAS security context, counters, integrity, ciphering, and key use.
-
-free5gc-compose/base/free5gc/NFs/amf/internal/gmm/handler.go
-  Source for current monolithic registration procedure behavior.
-
-free5gc-compose/base/free5gc/NFs/amf/internal/sbi/consumer
-  Source for AUSF, UDM, PCF, NRF client behavior that will be moved behind atomic services.
+    NGAP --> SRF[free6gc-srf]
+    NAS --> NASC[free6gc-nas-codec-service]
+    GMMMSG --> NASC
+    SEC --> NASS[free6gc-nas-security-service]
+    UECTX --> NASS
+    GMM --> GCF[free6gc-gcf]
+    GMM --> MM[free6gc-mobility-management-service]
+    GMM --> MR[free6gc-mobility-restriction-service]
+    SBI --> AUTH[free6gc-authentication-service]
+    SBI --> SUB[free6gc-subscription-service]
+    SBI --> MR
 ```
 
 The first refactor should not copy an entire AMF into every service. Each service should import or extract only the code needed for its own responsibility.
 
 ### 4.3 Ownership Rules
 
-SRF owns:
-
-- SCTP connection to gNB.
-- NGAP association state.
-- RAN UE association identifiers.
-- Downlink NAS transport delivery.
-- No NAS business interpretation.
-
-GCF owns:
-
-- Procedure ID.
-- Initial registration transaction state.
-- Step ordering and branch decisions.
-- Retry and timeout policy at procedure level.
-- Consolidated accept/reject decision.
-
-NAS Codec Service owns:
-
-- NAS message parsing.
-- NAS message construction.
-- Typed representations of decoded NAS facts.
-- No cryptographic state.
-
-NAS Security Service owns:
-
-- NAS security context.
-- Algorithm selection.
-- KAMF-derived NAS keys.
-- Uplink/downlink NAS counts.
-- Integrity verification and ciphering.
-- Security Mode Command protection/unprotection support.
-
-Authentication Service owns:
-
-- AUSF discovery or configured AUSF endpoint access.
-- Authentication start.
-- RES*/HRES* validation.
-- AUSF confirmation.
-- Resynchronization handling.
-- SUPI and KSEAF result.
-
-Subscription Service owns:
-
-- UDM/UDR access for registration-relevant data.
-- Subscribed NSSAI retrieval.
-- AM data retrieval.
-- Service-local subscription cache if needed.
-
-Mobility Restriction Service owns:
-
-- RAT/TA/slice access decision.
-- Restriction evaluation from subscription and policy input.
-
-Mobility Management Service owns:
-
-- GUTI allocation.
-- TAI list allocation.
-- Registration timers.
-- Registration context commit.
+```mermaid
+mindmap
+  root((Runtime Ownership))
+    SRF
+      SCTP connection to gNB
+      NGAP association state
+      RAN UE identifiers
+      Downlink NAS delivery
+      No NAS business interpretation
+    GCF
+      Procedure ID
+      Initial registration transaction
+      Step ordering
+      Branch decisions
+      Retry and timeout policy
+      Accept or reject decision
+    NAS Codec Service
+      NAS parsing
+      NAS construction
+      Typed decoded facts
+      No cryptographic state
+    NAS Security Service
+      NAS security context
+      Algorithm selection
+      KAMF-derived NAS keys
+      Uplink and downlink NAS counts
+      Integrity and ciphering
+    Authentication Service
+      AUSF access
+      Authentication start
+      RES star and HRES star validation
+      AUSF confirmation
+      Resynchronization handling
+      SUPI and KSEAF result
+    Subscription Service
+      UDM and UDR access
+      Subscribed NSSAI
+      AM data
+      Optional local cache
+    Mobility Restriction Service
+      RAT access decision
+      TA access decision
+      Slice access decision
+      Restriction evaluation
+    Mobility Management Service
+      GUTI allocation
+      TAI list allocation
+      Registration timers
+      Registration context commit
+```
 
 ## 5. Process View
 
@@ -335,32 +375,46 @@ flowchart LR
 
 ### 6.1 Milestone 1 Docker Compose Deployment
 
-```text
-Host
-  Docker network: free6gc-control
-    free6gc-srf
-      - Exposes NGAP/SCTP toward gNB.
-      - Calls free6gc-gcf over gRPC.
+```mermaid
+flowchart TB
+    subgraph HOST[Host]
+        subgraph RAN[Docker network: ran-core]
+            UE[UERANSIM UE]
+            GNB[UERANSIM gNB]
+            UE --> GNB
+        end
 
-    free6gc-gcf
-      - Static config for atomic service endpoints.
-      - Calls atomic services over gRPC.
+        subgraph CTRL[Docker network: free6gc-control]
+            SRF[free6gc-srf<br/>NGAP/SCTP endpoint]
+            GCF[free6gc-gcf<br/>static endpoint config]
+            NASC[free6gc-nas-codec-service]
+            NASS[free6gc-nas-security-service]
+            AUTH[free6gc-authentication-service]
+            SUB[free6gc-subscription-service]
+            MR[free6gc-mobility-restriction-service]
+            MM[free6gc-mobility-management-service]
+            AUSF[free5gc-ausf]
+            UDM[free5gc-udm]
+            UDR[free5gc-udr]
+            NRF[free5gc-nrf or static endpoints]
+            DB[(mongodb)]
+        end
+    end
 
-    free6gc-nas-codec-service
-    free6gc-nas-security-service
-    free6gc-authentication-service
-    free6gc-subscription-service
-    free6gc-mobility-restriction-service
-    free6gc-mobility-management-service
-
-    free5gc-ausf
-    free5gc-udm
-    free5gc-udr
-    free5gc-nrf or static endpoints
-    mongodb
-
-  Docker network: ran-core
-    ueransim gNB/UE
+    GNB -->|NGAP/SCTP| SRF
+    SRF -->|gRPC| GCF
+    GCF -->|gRPC| NASC
+    GCF -->|gRPC| NASS
+    GCF -->|gRPC| AUTH
+    GCF -->|gRPC| SUB
+    GCF -->|gRPC| MR
+    GCF -->|gRPC| MM
+    AUTH -->|SBI/configured endpoint| AUSF
+    SUB -->|SBI/configured endpoint| UDM
+    UDM --> UDR
+    UDR --> DB
+    AUTH -. optional .-> NRF
+    SUB -. optional .-> NRF
 ```
 
 Milestone 1 should not run legacy `free5gc-amf` for the registration path. It may remain available only as a reference or comparison target.
@@ -369,45 +423,69 @@ SMF and UPF are not required for initial registration unless the scenario is ext
 
 ### 6.2 Target Kubernetes Deployment
 
-```text
-Namespace: free6gc
+```mermaid
+flowchart TB
+    subgraph NS[Namespace: free6gc]
+        subgraph INGRESS[External access]
+            NGAP[SRF NGAP exposure<br/>hostNetwork / NodePort / LoadBalancer]
+        end
 
-Deployments:
-  free6gc-srf
-  free6gc-gcf
-  free6gc-nas-codec-service
-  free6gc-nas-security-service
-  free6gc-authentication-service
-  free6gc-subscription-service
-  free6gc-mobility-restriction-service
-  free6gc-mobility-management-service
-  ausf
-  udm
-  udr
-  mongodb
+        subgraph CORE[Free6GC deployments]
+            SRF[Deployment: free6gc-srf]
+            GCF[Deployment: free6gc-gcf]
+            NASC[Deployment: nas-codec]
+            NASS[Deployment: nas-security]
+            AUTH[Deployment: authentication]
+            SUB[Deployment: subscription]
+            MR[Deployment: mobility-restriction]
+            MM[Deployment: mobility-management]
+        end
 
-Services:
-  ClusterIP for all gRPC services.
-  NodePort/hostNetwork/load balancer treatment for SRF NGAP/SCTP depending on test environment.
+        subgraph LEGACY[Free5GC backend services]
+            AUSF[Deployment: ausf]
+            UDM[Deployment: udm]
+            UDR[Deployment: udr]
+            DB[(StatefulSet: mongodb)]
+        end
 
-ConfigMaps:
-  gcf service endpoint config.
-  PLMN, TAC, slice, timer, and algorithm policy config.
+        CM[ConfigMaps<br/>service endpoints, PLMN, TAC, slice, timers, algorithms]
+        SEC[Secrets<br/>TLS material and test subscriber credentials]
+    end
 
-Secrets:
-  TLS material if mTLS is enabled later.
-  Subscriber/auth test credentials if needed.
+    NGAP --> SRF
+    SRF -->|ClusterIP gRPC| GCF
+    GCF -->|ClusterIP gRPC| NASC
+    GCF -->|ClusterIP gRPC| NASS
+    GCF -->|ClusterIP gRPC| AUTH
+    GCF -->|ClusterIP gRPC| SUB
+    GCF -->|ClusterIP gRPC| MR
+    GCF -->|ClusterIP gRPC| MM
+    AUTH --> AUSF
+    SUB --> UDM
+    UDM --> UDR
+    UDR --> DB
+    CM -. mounted/read .-> GCF
+    CM -. mounted/read .-> SRF
+    SEC -. mounted/read .-> CORE
 ```
 
 ### 6.3 Scaling Model
 
-- SRF scales by RAN association partitioning. Stateful SCTP associations require careful placement.
-- GCF can scale by procedure ownership if SRF consistently routes a UE/procedure to the same GCF instance.
-- NAS Codec Service is stateless and horizontally scalable.
-- NAS Security Service is stateful for milestone 1 because context is in memory.
-- Authentication Service is stateful only for active auth sessions and can later externalize service-local storage.
-- Subscription Service can be mostly stateless with optional cache.
-- Mobility Management Service is stateful for registration context and should later get service-owned persistence.
+```mermaid
+flowchart LR
+    SRF[SRF<br/>stateful SCTP/RAN associations] -->|sticky procedure routing| GCF[GCF<br/>stateful procedure transactions]
+    GCF --> NASC[NAS Codec<br/>stateless]
+    GCF --> NASS[NAS Security<br/>stateful in-memory security context]
+    GCF --> AUTH[Authentication<br/>stateful active auth sessions]
+    GCF --> SUB[Subscription<br/>mostly stateless, optional cache]
+    GCF --> MR[Mobility Restriction<br/>stateless decision engine]
+    GCF --> MM[Mobility Management<br/>stateful registration context]
+
+    NASC -. easiest to scale .-> NASC2[NAS Codec replica]
+    MR -. easiest to scale .-> MR2[Mobility Restriction replica]
+    NASS -. needs context affinity or persistence later .-> NASS2[NAS Security replica]
+    MM -. needs persistence later .-> MM2[Mobility Management replica]
+```
 
 ## 7. Scenario View
 
@@ -424,26 +502,24 @@ Preconditions:
 
 Main flow:
 
-1. UE sends NAS Registration Request through gNB.
-2. gNB sends NGAP InitialUEMessage to SRF.
-3. SRF records RAN association metadata and forwards raw NAS to GCF.
-4. GCF asks NAS Codec Service to decode the NAS request.
-5. GCF starts authentication through Authentication Service.
-6. GCF asks NAS Codec Service to build Authentication Request.
-7. GCF asks SRF to send Authentication Request to UE.
-8. UE sends Authentication Response.
-9. GCF decodes response and confirms authentication.
-10. GCF creates NAS security context through NAS Security Service.
-11. GCF builds and protects Security Mode Command.
-12. UE sends protected Security Mode Complete.
-13. GCF unprotects and decodes Security Mode Complete.
-14. GCF fetches subscription data.
-15. GCF evaluates mobility restrictions.
-16. GCF allocates registration context.
-17. GCF builds and protects Registration Accept.
-18. UE sends protected Registration Complete.
-19. GCF commits registration.
-20. GCF marks procedure complete.
+```mermaid
+stateDiagram-v2
+    [*] --> RegistrationRequestReceived
+    RegistrationRequestReceived --> AuthenticationStarted: decode registration request
+    AuthenticationStarted --> AuthenticationChallengeSent: build/send auth request
+    AuthenticationChallengeSent --> AuthenticationConfirmed: receive RES star and confirm
+    AuthenticationConfirmed --> SecurityContextCreated: create NAS security context
+    SecurityContextCreated --> SecurityModeCommandSent: build/protect/send SMC
+    SecurityModeCommandSent --> SecurityModeCompleteReceived: unprotect/decode SMC complete
+    SecurityModeCompleteReceived --> SubscriptionFetched: fetch registration subscription data
+    SubscriptionFetched --> AccessEvaluated: evaluate TAI/RAT/slice restrictions
+    AccessEvaluated --> RegistrationContextAllocated: allocate GUTI/TAI/timers
+    RegistrationContextAllocated --> RegistrationAcceptSent: build/protect/send accept
+    RegistrationAcceptSent --> RegistrationCompleteReceived: receive registration complete
+    RegistrationCompleteReceived --> RegistrationCommitted: commit registration
+    RegistrationCommitted --> ProcedureComplete
+    ProcedureComplete --> [*]
+```
 
 Success criteria:
 
@@ -455,22 +531,31 @@ Success criteria:
 
 ### 7.2 Scenario: Authentication Failure
 
-1. UE sends Registration Request.
-2. GCF starts authentication.
-3. Authentication Service receives invalid `RES*` or failure from AUSF.
-4. GCF decides rejection branch.
-5. NAS Codec Service builds Authentication Reject or Registration Reject as appropriate.
-6. SRF delivers the downlink NAS reject.
-7. GCF closes the procedure transaction.
+```mermaid
+stateDiagram-v2
+    [*] --> RegistrationRequestReceived
+    RegistrationRequestReceived --> AuthenticationStarted
+    AuthenticationStarted --> AuthenticationChallengeSent
+    AuthenticationChallengeSent --> AuthenticationFailed: invalid RES star or AUSF failure
+    AuthenticationFailed --> RejectBuilt: NAS Codec builds reject
+    RejectBuilt --> RejectDelivered: SRF sends downlink NAS
+    RejectDelivered --> ProcedureFailed
+    ProcedureFailed --> [*]
+```
 
 ### 7.3 Scenario: Access Restricted
 
-1. UE completes authentication and security mode.
-2. Subscription Service returns subscription data.
-3. Mobility Restriction Service returns access denied for TAI/RAT/slice.
-4. GCF builds protected Registration Reject.
-5. SRF delivers rejection.
-6. GCF marks procedure failed with explicit cause.
+```mermaid
+stateDiagram-v2
+    [*] --> SecurityModeCompleteReceived
+    SecurityModeCompleteReceived --> SubscriptionFetched
+    SubscriptionFetched --> AccessDenied: Mobility Restriction denies TAI/RAT/slice
+    AccessDenied --> RegistrationRejectBuilt
+    RegistrationRejectBuilt --> RegistrationRejectProtected
+    RegistrationRejectProtected --> RejectDelivered
+    RejectDelivered --> ProcedureFailed
+    ProcedureFailed --> [*]
+```
 
 ## 8. Initial Proto Contract Sketch
 
@@ -530,15 +615,24 @@ message MarkProcedureCompleteResult {
 
 Suggested proto files:
 
-```text
-srf_gcf.proto
-nas_codec.proto
-nas_security.proto
-authentication.proto
-subscription.proto
-mobility_restriction.proto
-mobility_management.proto
-common.proto
+```mermaid
+flowchart TB
+    COMMON[common.proto<br/>ProcedureRef, RanMetadata, causes, identifiers]
+    SRFGCF[srf_gcf.proto<br/>GcfIngress and SrfControl]
+    NASC[nas_codec.proto<br/>Decode and build NAS]
+    NASS[nas_security.proto<br/>protect/unprotect/context]
+    AUTH[authentication.proto<br/>start/confirm/failure]
+    SUB[subscription.proto<br/>registration subscription data]
+    MR[mobility_restriction.proto<br/>access evaluation]
+    MM[mobility_management.proto<br/>allocation and commit]
+
+    COMMON --> SRFGCF
+    COMMON --> NASC
+    COMMON --> NASS
+    COMMON --> AUTH
+    COMMON --> SUB
+    COMMON --> MR
+    COMMON --> MM
 ```
 
 ## 9. Codex Session Prompts
@@ -746,17 +840,36 @@ Required operations:
 
 ## 10. Immediate Work Plan
 
-1. Create `free6gc-system` with this design, proto stubs, compose skeleton, and test plan.
-2. Create `free6gc-api-go` generation workflow.
-3. Implement fake atomic services so GCF and SRF can be tested before extraction is complete.
-4. Implement SRF NGAP path using Free5GC AMF NGAP code as reference.
-5. Implement GCF happy-path initial registration orchestration.
-6. Extract NAS Codec Service.
-7. Extract NAS Security Service.
-8. Extract Authentication Service.
-9. Extract Subscription, Mobility Restriction, and Mobility Management services.
-10. Replace fake services in E2E compose one by one.
-11. Run UERANSIM initial registration through SRF/GCF without legacy AMF.
+```mermaid
+flowchart TB
+    A[1. Create free6gc-system<br/>design, proto stubs, compose skeleton, test plan]
+    B[2. Create free6gc-api-go<br/>generation workflow]
+    C[3. Implement fake atomic services<br/>for GCF/SRF tests]
+    D[4. Implement SRF NGAP path<br/>from Free5GC AMF reference]
+    E[5. Implement GCF happy path<br/>initial registration orchestration]
+    F[6. Extract NAS Codec Service]
+    G[7. Extract NAS Security Service]
+    H[8. Extract Authentication Service]
+    I[9. Extract Subscription Service]
+    J[10. Extract Mobility Restriction Service]
+    K[11. Extract Mobility Management Service]
+    L[12. Replace fakes one by one<br/>in e2e compose]
+    M[13. Run UERANSIM initial registration<br/>through SRF/GCF without legacy AMF]
+
+    A --> B
+    B --> C
+    C --> D
+    C --> E
+    D --> M
+    E --> M
+    F --> L
+    G --> L
+    H --> L
+    I --> L
+    J --> L
+    K --> L
+    L --> M
+```
 
 ## 11. Open Questions
 
