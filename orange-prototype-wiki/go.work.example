@@ -1,0 +1,24 @@
+// Template for local multi-repo Free6GC development.
+//
+// Intended location after repository creation:
+//   free6gc-system/go.work.example
+//
+// Usage:
+//   1. Copy this file to a local, uncommitted go.work file.
+//   2. If copied to /root/proj/go/go.work, change paths from ../repo to ./repo.
+//   3. Keep service go.mod files pinned to tagged or pseudo-versioned
+//      free6gc-api-go in committed PRs; do not commit machine-local replace paths.
+
+go 1.25.5
+
+use (
+	../free6gc-api-go
+	../free6gc-srf
+	../free6gc-gcf
+	../free6gc-nas-codec-service
+	../free6gc-nas-security-service
+	../free6gc-authentication-service
+	../free6gc-subscription-service
+	../free6gc-mobility-restriction-service
+	../free6gc-mobility-management-service
+)
