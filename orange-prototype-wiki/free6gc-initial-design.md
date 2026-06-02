@@ -57,6 +57,30 @@ Before editing, inspect the existing code path and identify the exact Free5GC fu
 12. NAS security boundary: NAS Security Service handles NAS security context, integrity, ciphering, and NAS counts.
 13. Authentication boundary: Authentication Service owns Authentication/SEAF responsibilities.
 14. Atomic service state: service-local in-memory UE context for milestone 1.
+15. PCF and AM Policy Control are deferred from the happy-path initial registration.
+16. Authentication and Subscription Services use static configured endpoints for Free5GC AUSF/UDM/UDR.
+17. `free6gc-api-go` is generated, committed, and consumed as its own sibling repo.
+18. Local multi-repo development uses `go.work` or temporary local `replace`; committed PRs pin `free6gc-api-go` by tag or commit pseudo-version.
+19. `free6gc-system` provides `go.work.example`, not a committed active `go.work`.
+20. Milestone 1 uses plaintext gRPC on isolated Docker networks; no mTLS.
+21. GCF transaction logs are in memory, with optional debug/replay export.
+22. Debug snapshot/reset APIs are allowed for milestone 1 and gated by config.
+23. E2E harness has two layers: synthetic SRF replay and full UERANSIM through SRF.
+24. Synthetic SRF replay uses real encoded NAS bytes, initially generated provisionally, then replaced by golden UERANSIM trace JSON.
+25. Golden trace replay covers only the successful initial-registration path.
+26. Milestone 1 stops at Registration Complete committed.
+27. Happy-path Registration Request assumes SUCI is present.
+28. Milestone 1 supports 5G-AKA only.
+29. Authentication Service returns SUPI and KSEAF; NAS Security Service derives KAMF and NAS keys.
+30. NAS Security Service selects NAS algorithms.
+31. NAS Security contexts use generated `security_context_id`.
+32. Mobility Management committed registration context uses SUPI as primary key.
+33. GCF exposes one generic ingress API: `StartOrContinueProcedure`.
+34. GCF allocates `procedure_id` and correlates uplink events using RAN association metadata.
+35. SRF does not store procedure correlation state in milestone 1.
+36. SRF downlink delivery is addressed by RAN routing metadata.
+37. SRF, GCF, and all atomic services are single-instance in milestone 1.
+38. Milestone 1 uses Docker Compose only.
 
 ## 3. 4+1 Architecture Views
 
@@ -68,7 +92,7 @@ flowchart TB
     LOGICAL[Logical View<br/>SRF, GCF, AMCF atomic services]
     DEV[Development View<br/>hybrid multi-repo and proto contracts]
     PROCESS[Process View<br/>initial registration runtime messages]
-    PHYSICAL[Physical View<br/>compose and Kubernetes deployment]
+    PHYSICAL[Physical View<br/>Docker Compose deployment]
     SCENARIO[Scenario View<br/>success and failure registration flows]
 
     CENTER --> LOGICAL
@@ -108,7 +132,6 @@ flowchart TB
     subgraph BACKEND[Existing Free5GC backend services]
         AUSF[AUSF]
         UDM[UDM/UDR]
-        PCF[PCF optional]
     end
 
     GNB -->|NGAP/SCTP| SRF
@@ -121,7 +144,6 @@ flowchart TB
     GCF --> MM
     AUTH --> AUSF
     SUB --> UDM
-    MR -. policy input .-> PCF
 ```
 
 ## 4. Development View
@@ -193,7 +215,7 @@ flowchart LR
         SEC[NFs/amf/internal/nas/nas_security<br/>NAS protection]
         UECTX[NFs/amf/internal/context/amf_ue.go<br/>UE security/context fields]
         GMM[NFs/amf/internal/gmm/handler.go<br/>registration procedure]
-        SBI[NFs/amf/internal/sbi/consumer<br/>AUSF/UDM/PCF/NRF clients]
+        SBI[NFs/amf/internal/sbi/consumer<br/>AUSF/UDM client reference]
     end
 
     NGAP --> SRF[free6gc-srf]
@@ -318,6 +340,8 @@ free6gc-system/
   tests/
     contract/
     e2e/
+  deployments/
+    compose/
   prompts/
     cross-repo-task-template.md
 
@@ -335,6 +359,7 @@ Spec placement rules:
 - Integration scenarios: `free6gc-system/specs/scenarios/`.
 - Architecture decisions: `free6gc-system/specs/decisions/`.
 - Contract and E2E acceptance tests: `free6gc-system/tests/`.
+- Milestone 1 deployment manifests: `free6gc-system/deployments/compose/`.
 - Purely local service behavior: owning service repo under `specs/requirements/`.
 - Internal refactor with no behavior change: a service-local note or issue is enough; no system spec is required.
 
@@ -429,10 +454,8 @@ sequenceDiagram
     GCF->>NASC: DecodeUplinkNas(raw NAS)
     NASC-->>GCF: RegistrationComplete facts
 
-    GCF->>MM: CommitRegistration(SUPI, RAN association, completion)
+    GCF->>MM: CommitRegistration(SUPI, RAN routing context, completion)
     MM-->>GCF: registration committed
-
-    GCF->>SRF: MarkProcedureComplete / optional UE context release
 ```
 
 ### 5.2 Communication Diagram
@@ -450,14 +473,16 @@ flowchart LR
     GCF -->|gRPC| MR[Mobility Restriction Service<br/>access decision logic]
     GCF -->|gRPC| MM[Mobility Management Service<br/>GUTI/TA/registration context]
 
-    AUTH -->|SBI or configured endpoint| AUSF[AUSF]
-    SUB -->|SBI or configured endpoint| UDM[UDM/UDR]
-    MR -->|optional policy input| PCF[PCF]
+    AUTH -->|static configured endpoint| AUSF[AUSF]
+    SUB -->|static configured endpoint| UDM[UDM/UDR]
 ```
 
 ### 5.3 Process Rules
 
-- SRF must not branch on NAS registration semantics except for minimal correlation required to route messages.
+- SRF must not branch on NAS registration semantics and must not own procedure correlation state in milestone 1.
+- SRF forwards uplink NAS events with RAN metadata to the single GCF instance.
+- GCF correlates uplink events using RAN association metadata until SUPI is known.
+- GCF stores a `ran_routing_context` in procedure transaction state and passes it back to SRF for downlink NAS delivery.
 - GCF must not parse ASN.1 NGAP.
 - GCF should not import NAS bit-level encoding packages directly.
 - GCF should be able to replay a procedure from a transaction log in tests.
@@ -490,7 +515,6 @@ flowchart TB
             AUSF[free5gc-ausf]
             UDM[free5gc-udm]
             UDR[free5gc-udr]
-            NRF[free5gc-nrf or static endpoints]
             DB[(mongodb)]
         end
     end
@@ -503,83 +527,39 @@ flowchart TB
     GCF -->|gRPC| SUB
     GCF -->|gRPC| MR
     GCF -->|gRPC| MM
-    AUTH -->|SBI/configured endpoint| AUSF
-    SUB -->|SBI/configured endpoint| UDM
+    AUTH -->|static configured endpoint| AUSF
+    SUB -->|static configured endpoint| UDM
     UDM --> UDR
     UDR --> DB
-    AUTH -. optional .-> NRF
-    SUB -. optional .-> NRF
 ```
 
 Milestone 1 should not run legacy `free5gc-amf` for the registration path. It may remain available only as a reference or comparison target.
 
 SMF and UPF are not required for initial registration unless the scenario is extended to PDU session establishment.
 
-### 6.2 Target Kubernetes Deployment
+### 6.2 Milestone 1 Deployment Constraints
 
 ```mermaid
 flowchart TB
-    subgraph NS[Namespace: free6gc]
-        subgraph INGRESS[External access]
-            NGAP[SRF NGAP exposure<br/>hostNetwork / NodePort / LoadBalancer]
-        end
+    COMPOSE[Milestone 1 runtime<br/>Docker Compose only]
+    NET[Isolated Docker networks]
+    GRPC[Plaintext gRPC<br/>no mTLS]
+    SINGLE[Single instance per Free6GC service]
+    SRF[Single SRF<br/>forwards NAS + RAN metadata]
+    GCF[Single GCF<br/>owns correlation and transaction state]
+    ATOMIC[Single atomic service instances<br/>service-local in-memory context]
+    BACKEND[Existing Free5GC AUSF/UDM/UDR<br/>static configured endpoints]
 
-        subgraph CORE[Free6GC deployments]
-            SRF[Deployment: free6gc-srf]
-            GCF[Deployment: free6gc-gcf]
-            NASC[Deployment: nas-codec]
-            NASS[Deployment: nas-security]
-            AUTH[Deployment: authentication]
-            SUB[Deployment: subscription]
-            MR[Deployment: mobility-restriction]
-            MM[Deployment: mobility-management]
-        end
-
-        subgraph LEGACY[Free5GC backend services]
-            AUSF[Deployment: ausf]
-            UDM[Deployment: udm]
-            UDR[Deployment: udr]
-            DB[(StatefulSet: mongodb)]
-        end
-
-        CM[ConfigMaps<br/>service endpoints, PLMN, TAC, slice, timers, algorithms]
-        SEC[Secrets<br/>TLS material and test subscriber credentials]
-    end
-
-    NGAP --> SRF
-    SRF -->|ClusterIP gRPC| GCF
-    GCF -->|ClusterIP gRPC| NASC
-    GCF -->|ClusterIP gRPC| NASS
-    GCF -->|ClusterIP gRPC| AUTH
-    GCF -->|ClusterIP gRPC| SUB
-    GCF -->|ClusterIP gRPC| MR
-    GCF -->|ClusterIP gRPC| MM
-    AUTH --> AUSF
-    SUB --> UDM
-    UDM --> UDR
-    UDR --> DB
-    CM -. mounted/read .-> GCF
-    CM -. mounted/read .-> SRF
-    SEC -. mounted/read .-> CORE
+    COMPOSE --> NET
+    COMPOSE --> GRPC
+    COMPOSE --> SINGLE
+    SINGLE --> SRF
+    SINGLE --> GCF
+    SINGLE --> ATOMIC
+    ATOMIC --> BACKEND
 ```
 
-### 6.3 Scaling Model
-
-```mermaid
-flowchart LR
-    SRF[SRF<br/>stateful SCTP/RAN associations] -->|sticky procedure routing| GCF[GCF<br/>stateful procedure transactions]
-    GCF --> NASC[NAS Codec<br/>stateless]
-    GCF --> NASS[NAS Security<br/>stateful in-memory security context]
-    GCF --> AUTH[Authentication<br/>stateful active auth sessions]
-    GCF --> SUB[Subscription<br/>mostly stateless, optional cache]
-    GCF --> MR[Mobility Restriction<br/>stateless decision engine]
-    GCF --> MM[Mobility Management<br/>stateful registration context]
-
-    NASC -. easiest to scale .-> NASC2[NAS Codec replica]
-    MR -. easiest to scale .-> MR2[Mobility Restriction replica]
-    NASS -. needs context affinity or persistence later .-> NASS2[NAS Security replica]
-    MM -. needs persistence later .-> MM2[Mobility Management replica]
-```
+Multi-instance scaling, mTLS, NRF discovery, PCF policy integration, and post-registration UE context release are deferred from milestone 1.
 
 ## 7. Scenario View
 
@@ -621,7 +601,7 @@ Success criteria:
 - GCF transaction state is complete.
 - Mobility Management Service has committed registration context.
 - NAS Security Service has a valid security context.
-- SRF can correlate all uplink/downlink NAS transports for the RAN UE association.
+- GCF can correlate all uplink NAS events through RAN metadata and can address downlink NAS delivery through SRF.
 
 ### 7.2 Scenario: Authentication Failure
 
@@ -662,15 +642,17 @@ package free6gc.v1;
 
 message ProcedureRef {
   string procedure_id = 1;
-  string ran_assoc_id = 2;
-  string ran_ue_id = 3;
 }
 
-message RanMetadata {
-  string plmn_id = 1;
-  string tac = 2;
-  string cell_id = 3;
-  string rat_type = 4;
+message RanRoutingContext {
+  string ran_assoc_id = 1;
+  string ran_ue_id = 2;
+  string amf_ue_ngap_id = 3;
+  string ran_ue_ngap_id = 4;
+  string plmn_id = 5;
+  string tac = 6;
+  string cell_id = 7;
+  string rat_type = 8;
 }
 
 service GcfIngress {
@@ -678,9 +660,8 @@ service GcfIngress {
 }
 
 message UplinkNasEvent {
-  ProcedureRef ref = 1;
-  RanMetadata ran = 2;
-  bytes nas_pdu = 3;
+  RanRoutingContext ran = 1;
+  bytes nas_pdu = 2;
 }
 
 message GcfIngressResult {
@@ -690,19 +671,14 @@ message GcfIngressResult {
 
 service SrfControl {
   rpc SendDownlinkNas(DownlinkNasCommand) returns (DownlinkNasResult);
-  rpc MarkProcedureComplete(ProcedureRef) returns (MarkProcedureCompleteResult);
 }
 
 message DownlinkNasCommand {
-  ProcedureRef ref = 1;
+  RanRoutingContext ran = 1;
   bytes nas_pdu = 2;
 }
 
 message DownlinkNasResult {
-  bool accepted = 1;
-}
-
-message MarkProcedureCompleteResult {
   bool accepted = 1;
 }
 ```
@@ -711,7 +687,7 @@ Suggested proto files:
 
 ```mermaid
 flowchart TB
-    COMMON[common.proto<br/>ProcedureRef, RanMetadata, causes, identifiers]
+    COMMON[common.proto<br/>ProcedureRef, RanRoutingContext, causes, identifiers]
     SRFGCF[srf_gcf.proto<br/>GcfIngress and SrfControl]
     NASC[nas_codec.proto<br/>Decode and build NAS]
     NASS[nas_security.proto<br/>protect/unprotect/context]
@@ -748,7 +724,8 @@ Rules:
 - SRF terminates NGAP/SCTP.
 - SRF forwards raw NAS PDUs plus RAN metadata to GCF over gRPC.
 - SRF does not decode NAS business semantics.
-- SRF owns RAN association and RAN UE routing state.
+- SRF owns RAN association and downlink NGAP delivery state.
+- SRF does not own procedure correlation state in milestone 1.
 - SRF exposes a gRPC control API for GCF to send downlink NAS.
 
 Deliverables:
@@ -774,6 +751,8 @@ Implement the initial registration orchestrator.
 
 Rules:
 - GCF owns procedure transaction state.
+- GCF allocates procedure_id and correlates uplink events by RAN association metadata.
+- GCF stores ran_routing_context and uses it when calling SRF downlink APIs.
 - GCF calls atomic services over gRPC using static config.
 - GCF does not terminate NGAP.
 - GCF does not directly parse/build NAS bytes.
@@ -828,7 +807,7 @@ Expose gRPC APIs for NAS security context creation, uplink unprotection, and dow
 
 Rules:
 - Service-local in-memory context.
-- Keyed by procedure_id/security_context_id.
+- Primary key is generated security_context_id, with indexes for procedure_id and SUPI when known.
 - Own NAS counts and selected algorithms.
 - Do not decode NAS message semantics.
 
@@ -969,10 +948,10 @@ flowchart TB
 
 These are intentionally left for later review:
 
-1. Should milestone 1 use mTLS between services, or plaintext gRPC on an isolated Docker network?
-2. Should `free6gc-api-go` be generated in CI only, or checked in for easier Codex sessions?
-3. Should service-local memory be reset by admin API for tests?
-4. Should GCF transaction logs be persisted to disk for replay in milestone 1?
-5. How much of NRF remains in milestone 1 if GCF uses static config?
-6. Should PCF be included in the happy path, or deferred until access restriction/policy tests require it?
-7. Should Registration Complete trigger UE context release behavior in milestone 1, or just commit registration?
+1. What exact JSON schema should golden trace replay use?
+2. Should debug snapshot/reset APIs live in the same proto package or in separate debug-only proto files?
+3. How should provisional generated NAS fixtures be marked and prevented from becoming permanent golden traces?
+4. What command should capture the first UERANSIM golden trace?
+5. What release/tag process should publish `free6gc-api-go` after proto updates?
+6. Should Compose health checks be required before the E2E harness starts replay?
+7. Which service owns operator security algorithm policy config consumed by NAS Security Service?
